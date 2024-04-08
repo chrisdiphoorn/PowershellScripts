@@ -1,5 +1,5 @@
 #if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) { Start-Process powershell.exe "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs; exit }
-#Set-Item -Path WSMan:\localhost\Client\TrustedHosts -Value 'JOII-UW-HV01, JOII-UW-HV02, JOII-UW-SQL01' -Force
+#Set-Item -Path WSMan:\localhost\Client\TrustedHosts -Value 'SERVER-NAME1, SERVER-NAME2, SERVER-NAME3' -Force
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
  
@@ -574,7 +574,7 @@ foreach ($BackupFile in $BackupFiles) {
             $NewPath = "$($Drive)\$($aPath)"
                    
             # Need to pre-register a runspace configuration on the destination Server for the Invoke-Command to run as its run as a Double-hop Session.
-            # Register-PSSessionConfiguration -Name BackupHV01 -RunAsCredential 'joii\a-chris.diphoorn' -Force
+            # Register-PSSessionConfiguration -Name BackupHV01 -RunAsCredential 'domain\user' -Force
             $All = (Invoke-Command -ComputerName "$ServerName" -ScriptBlock { Get-ChildItem -Path "$($Using:NewPath)" -Filter "$($Using:lookup)" -File } -ConfigurationName BackupHV01)
 
         }
