@@ -29,7 +29,7 @@ catch  {
 
 #User Name Password to connect
 $AdminUserName = "svc-sqlserver@joii.org"
-$AdminPassword = "qbylyhcfkrbpqckw"                    # Application password created via https://aka.ms/createapppassword use to bypass 2nd authentication
+$AdminPassword = ""                    # Application password created via https://aka.ms/createapppassword use to bypass 2nd authentication
 
 #Prepare the Credentials
 $SecurePassword = ConvertTo-SecureString $AdminPassword -AsPlainText -Force
