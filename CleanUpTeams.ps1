@@ -1,3 +1,5 @@
+# this file will remove the Teams Cache from itsef on a users workstation.... Usefull for getting teams to download current data , and not cache any old data.
+
 $restartTeams = $False
 $processName = ""
 
