@@ -1,3 +1,11 @@
+# Failed to get folder properties. Not allowed to access Non IPM folder.
+# Stop the Veeam Backup for Microsoft 365 Service and Veeam Backup Proxy for Microsoft 365 Service
+# 2. Go to: C:\ProgramData\Veeam\Backup365
+# 3. Make a copy of the Config.xml file
+# 4. Edit the Config.xml file
+# 5. Add <Proxy SkipTeamsMessagesDataFolders="True" />  (right before the </Archiver> tag)
+# 6. Start the Veeam Backup for Microsoft 365 Service and Veeam Backup Proxy for Microsoft 365 Service
+
 #if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) { Start-Process powershell.exe "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs; exit }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
