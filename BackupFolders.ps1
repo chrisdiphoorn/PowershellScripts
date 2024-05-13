@@ -2,7 +2,74 @@
 #Set-Item -Path WSMan:\localhost\Client\TrustedHosts -Value 'SERVER-NAME1, SERVER-NAME2, SERVER-NAME3' -Force
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
- 
+#$UseRobocopy = $true
+
+Function RoboCopy-Item (
+	[string] $Source,
+	[string] $Destination,
+	[string] $LogFile,
+	[switch] $Recurse
+	) {
+	
+	$sw1 =""
+	
+	if($Recurse) {
+		if($Recurse.IsPresent) {
+			$sw1="/E"
+		}
+	}
+	
+	$TempLogFile = $false
+	if (!$LogFile) {
+		$LogFile = "$($env:TEMP)\robocopy.log"
+		$TempLogFile = $True
+	}
+	
+	$RestartableMode = "/ZB"
+	$Multicore = "/MT:8"
+	
+	# /E :: copy subdirectories, including Empty ones.
+	# /COPYALL :: COPY ALL file info (equivalent to /COPY:DATSOU).
+	# /B :: copy files in Backup mode.
+	# /SEC :: copy files with SECurity (equivalent to /COPY:DATS).
+	# /MIR :: MIRror a directory tree (equivalent to /E plus /PURGE).
+    # /NFL :: No File List - don't log file names.
+    # /NDL :: No Directory List - don't log directory names.
+    # /NP :: No Progress - don't display percentage copied.
+	# /R:n :: number of Retries on failed copies: default 1 million.
+    # /W:n :: Wait time between retries: default is 30 seconds.			
+	# /LOG+:file :: output status to LOG file (append to existing log).
+	
+	$AdditionalOptions ="/COPYALL /B /SEC /MIR /R:0 /W:0 /NP /NFL /NDL /ZB /MT:8"
+	$ExcludeFolders = "/XD `"$Recycle.bin`" `"System Volume Information`" `".etc`" `"lost+found`" "
+	$ExcludeFiles = "/XF `"thumbs.db`" `"thumbcache_256.db`" `".DS_Store`" "
+	
+	# Create a new instance of the Robocopy object
+	$robocopy = New-Object -TypeName System.Diagnostics.Process
+
+	$robocopy.StartInfo.FileName = "robocopy.exe"
+	$robocopy.StartInfo.Arguments = "`"$($Source)`" `"$($Destination)`" $sw1 $AdditionalOptions $ExcludeFolders $ExcludeFiles /LOG+:`"$LogFile`" "
+	$robocopy.StartInfo.UseShellExecute = $false
+	$robocopy.StartInfo.RedirectStandardOutput = $true
+	$robocopy.StartInfo.RedirectStandardError = $true
+
+	#Write-debug "$($robocopy.StartInfo.FileName) $($robocopy.StartInfo.Arguments)"
+	
+	$robocopy.Start() | Out-Null
+	$robocopy.WaitForExit()
+	
+	if ($robocopy.ExitCode -ne 0) {
+		Write-Host "     Robocopy - File Copy Failed. Exit code: $($robocopy.ExitCode)"
+	}	
+
+	# Remove the Tempoary LogFile
+	if ($TempLogFile -eq $True) {
+		if ([System.IO.File]::Exists("$($LogFile)") -eq $true) { 
+			Remove-Item -Path "$($LogFile)" -Force -ErrorAction SilentlyContinue | Out-Null 
+		}
+	}
+}
+
 # See https://www.powershellgallery.com/ for module and version info
 Function Install-ModuleIfNotInstalled(
     [string] [Parameter(Mandatory = $true)] $moduleName,
@@ -248,6 +315,13 @@ $ReadOnly = $True                     		# Turn Drive readonly after completed.
 $SyncFolders = @('Disk\Path1', 'Disk\Path2', 'Disk\Path3', 'Disk\Path14', 'Disk\Path5')
     
 $BackupFolders = @('Disk\Path2\WindowsImageBackup', 'Disk\Path1')	# Source backup folders to archive.
+
+
+# Additional process runs at the end of the backup process
+# Simply removes destination Foolder child items, then copies the source to the Destination
+$AdditionalCopyFolders = @('Disk\Path2\WindowsImageBackup')		# All the Folders and Files inside here will be copied to the Destination
+$AdditionalCopyDestination = @('Disk\Path1')    # Destination Share = Path to Save the AdditionalCopyFolders.
+ 
 $ZipFileNames = @('SERVER-NAME', 'APP-NAME')	# File Names to use when archiving the backup folders.
 
 $BackupFiles = @('Server\Sare\Path\Database1-Backup.bak', 'Server\Sare\Path\Database2-Backup.bak', 'Server\Sare\Path\Database3-Backup.bak')
@@ -266,7 +340,8 @@ $ZIPCompression = "Fast"                    	# None, Fast, Low, Normal, High, Ul
 $ZIPtmp = "C:\Temp"                 		# Temporary file creation folder
 	
 $MinimumFreeSpace = 800				# Gigabytes
-  
+$UseRobocopy = $false
+ 
 # The Init Script used with 7zip to ensure that multi threading is enabled. 
 $initScript = {
     param ($compressor)
@@ -294,6 +369,12 @@ if ($firstarg -eq "WARN") {
     $backupWarning = $True
 }
 
+if($UseRoboCopy -eq $true) {
+	if ([System.IO.File]::Exists("$LogFolder\robocopy.log") -eq $true) { 
+		Remove-Item -Path "$LogFolder\robocopy.log" -Force -ErrorAction SilentlyContinue | Out-Null 
+	}
+}
+ 
 # Start Transcript
 try { start-transcript -Path "$($LogFolder)\Backup_$(get-date -format "ddMMyyyy").log" | out-null } catch [System.InvalidOperationException] {}
 
@@ -928,6 +1009,69 @@ For ($i = 0; $i -lt $ReadUniqueID.Length; $i++) {
     Get-Disk | Where { $_.UniqueID -eq $ReadUniqueID[$i] } | Set-Disk -IsOffline $Offline 
         
 }
+
+############################### ADITIONAL COPY FOLDERS USING ROBOCOPY #########################################################################################
+if($AdditionalCopyFolders) {
+	Write-Host "NOW Processing $($AdditionalCopyFolders.length) Additional File Copy Processes."
+	$i = 0
+	foreach($CopyFolder in $AdditionalCopyFolders) 
+	{ 
+		$DestinationPath = "$($AdditionalCopyDestination[$i])"
+		if (Test-Path -Path "$($CopyFolder)") {
+			if (Test-Path -Path "$($DestinationPath)") {
+				$StartTime = (GET-DATE)
+				$GetAll = (Get-ChildItem -Path "$($CopyFolder)" -Recurse)
+				$GetDest = (Get-ChildItem -Path "$($DestinationPath)" -Recurse)
+				$GetAllFiles = $GetAll | Where-Object { (-not $_.PSIsContainer) }
+				$GetDestFiles = $GetDest | Where-Object { (-not $_.PSIsContainer) }
+				$GetDestDirs = $GetDest | Where-Object { ($_.PSIsContainer) }
+				
+				$copied = 0
+				$removed = 0
+				$errors = 0
+				$x = 0
+				$xx = 0
+				if($GetAll) {
+					[long]$Size = ($GetAll | Measure-Object -Property Length -sum).Sum
+					if($GetDestDirs) { $xx= $GetDestDirs.length }
+					if($GetDest) {
+						if($GetDestFiles) { $x= $GetDestFiles.length }
+						Write-Host "$(Get-Time) Removing $x Files and $xx Folders from Destination: $($DestinationPath)"
+						$GetDest | ForEach-Object -Process {
+							try {
+								Remove-Item -Path "$($_.FullName)" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null 
+								$removed ++
+							} catch {
+								Write-Host ""
+								Write-Host "$(Get-Time) POWERSHELL: $($PSItem.ToString()) Line: $($PSItem.InvocationInfo.ScriptLineNumber)" -f Red
+								$ErrorOccured = $True
+							}
+							Start-Sleep -Milliseconds 500
+						}
+					}
+					$errors = 0
+					if($GetAllFiles) {
+						$x= $GetAllFiles.length
+					}
+					Write-Host "$(Get-Time) Copying $(Format-Size($Size)) ($x Items) From: $($CopyFolder) To: $($DestinationPath)"
+					RoboCopy-Item -Source $($CopyFolder) -Destination $($DestinationPath) -Recurse
+				}
+				$FinishTime=(GET-DATE)
+				$diff = $FinishTime - $StartTime
+				$h = $diff.Hours.ToString().PadLeft(2,'0')
+				$m = $diff.Minutes.ToString().PadLeft(2,'0')
+				$s = $diff.Seconds.ToString().PadLeft(2,'0')
+				$DurationTime = "$($h):$($m):$($s)"
+				Write-Host "      Copy $($CopyFolder) Completed - OK  Duration: $DurationTime"
+			} else {
+				Write-host " Destination Path $($DestinationPath) - NOT Found!"	
+			} #DestinationPath OK
+		} else { 
+			Write-host " Source Path $($CopyFolder) - NOT Found!"
+		} #SourcePath OK
+	$i++
+	} #Foreach Item in Array
+} #$AdditionalCopyFolders
 
 # Remove Old Log Files
 $LogFileAgeDescription = "$($LogFileAge) day"
